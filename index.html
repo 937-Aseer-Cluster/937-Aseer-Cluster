@@ -457,6 +457,10 @@ function removeByIndexOrValue(arr, index, matchFn){
   const idx = arr.findIndex(matchFn);
   if(idx>=0) arr.splice(idx,1);
 }
+function requestRowDeletion(arrayPath, rows, index, label){
+  const snapshot = JSON.stringify(rows[index]);
+  requestDeletion('arrayRow', {arrayPath, index, snapshot}, label, ()=>{ rows.splice(index,1); });
+}
 function executeApprovedDeletion(req){
   const m = req.meta || {};
   if(req.type==='staffMember'){
@@ -475,6 +479,30 @@ function executeApprovedDeletion(req){
   } else if(req.type==='facilityEmployee'){
     const fac = STATE.facilities.find(f=>f.id===m.facilityId);
     if(fac) removeByIndexOrValue(fac.employees, m.index, e=>e.name===m.empName);
+  } else if(req.type==='personChallenge'){
+    const p = STATE.people[m.person];
+    if(p) removeByIndexOrValue(p.challenges, m.index, x=>x===m.text);
+  } else if(req.type==='personPlan'){
+    const p = STATE.people[m.person];
+    if(p) removeByIndexOrValue(p.plan, m.index, x=>Array.isArray(x) && x[0]===m.text);
+  } else if(req.type==='evalCriteria'){
+    const p = STATE.evaluations[m.person];
+    if(p) removeByIndexOrValue(p.criteria, m.index, x=>x.name===m.text);
+  } else if(req.type==='evalHistory'){
+    const p = STATE.evaluations[m.person];
+    if(p) removeByIndexOrValue(p.history, m.index, x=>x.date===m.date);
+  } else if(req.type==='staffCriteria'){
+    const p = STATE.staffReviews[m.person];
+    if(p) removeByIndexOrValue(p.criteria, m.index, x=>x.name===m.text);
+  } else if(req.type==='staffHistory'){
+    const p = STATE.staffReviews[m.person];
+    if(p) removeByIndexOrValue(p.history, m.index, x=>x.date===m.date);
+  } else if(req.type==='staffNote'){
+    const p = STATE.staffReviews[m.person];
+    if(p) removeByIndexOrValue(p.notes, m.index, x=>x.text===m.text);
+  } else if(req.type==='arrayRow'){
+    const arr = STATE[m.arrayPath];
+    if(arr) removeByIndexOrValue(arr, m.index, row=>JSON.stringify(row)===m.snapshot);
   }
 }
 function removeStaffMember(name){
@@ -854,7 +882,9 @@ function renderPerson(name){
       });
       inp.addEventListener('change', render);
     });
-    tr.querySelector('.icon-btn').addEventListener('click', ()=>{ pdata.kpis.splice(i,1); queueSave(); render(); });
+    tr.querySelector('.icon-btn').addEventListener('click', ()=>{
+      requestDeletion('personKpi', {person:name, index:i, name:k.name}, `مؤشر "${k.name||'(بدون اسم)'}" — بطاقة ${name}`, ()=>{ pdata.kpis.splice(i,1); });
+    });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -873,7 +903,9 @@ function renderPerson(name){
     const row = document.createElement('div'); row.className='list-item';
     row.innerHTML = `<span class="num">${i+1}</span><textarea data-i="${i}">${c}</textarea><button class="icon-btn" title="حذف">✕</button>`;
     row.querySelector('textarea').addEventListener('input', e=>{ pdata.challenges[i]=e.target.value; queueSave(); });
-    row.querySelector('.icon-btn').addEventListener('click', ()=>{ pdata.challenges.splice(i,1); queueSave(); render(); });
+    row.querySelector('.icon-btn').addEventListener('click', ()=>{
+      requestDeletion('personChallenge', {person:name, index:i, text:c}, `تحدٍ "${c||'(بدون نص)'}" — بطاقة ${name}`, ()=>{ pdata.challenges.splice(i,1); });
+    });
     chList.appendChild(row);
   });
   chCard.appendChild(chList);
@@ -897,7 +929,9 @@ function renderPerson(name){
     row.querySelectorAll('input,select').forEach(el=>{
       el.addEventListener('input', e=>{ pdata.plan[i][+e.target.dataset.f] = e.target.value; queueSave(); });
     });
-    row.querySelector('.icon-btn').addEventListener('click', ()=>{ pdata.plan.splice(i,1); queueSave(); render(); });
+    row.querySelector('.icon-btn').addEventListener('click', ()=>{
+      requestDeletion('personPlan', {person:name, index:i, text:p[0]}, `إجراء خطة "${p[0]||'(بدون نص)'}" — بطاقة ${name}`, ()=>{ pdata.plan.splice(i,1); });
+    });
     plList.appendChild(row);
   });
   plCard.appendChild(plList);
@@ -973,7 +1007,7 @@ function renderComplaints(){
   const headers=['رقم البلاغ','المصدر','تاريخ الورود','الوصف','الجهة/المنشأة','المسؤول','الحالة','تاريخ الإغلاق','العمر الزمني','التنبيه'];
   return tableCard('سجل متابعة البلاغات (الزائر السري + بلاغات التجمع)','العمر الزمني والتنبيه يُحسبان تلقائيًا',headers,rows,cols,
     ()=>{ rows.push({code:'',source:'زائر سري',date:'',desc:'',facility:'',owner:NAMES[0],status:'مفتوح',closeDate:''}); queueSave(); render(); },
-    (i)=>{ rows.splice(i,1); queueSave(); render(); });
+    (i)=>{ requestRowDeletion('complaints', rows, i, `بلاغ رقم "${rows[i].code||'(بدون رقم)'}"`); });
 }
 
 /* ============== INITIATIVES ============== */
@@ -988,7 +1022,7 @@ function renderInitiatives(){
   const headers=['المبادرة/التحسين','مقدم المقترح','التاريخ','الأثر المتوقع','الحالة','الأثر الفعلي','ملاحظات'];
   return tableCard('متابعة المبادرات والتحسينات','لمعرفة من اقترح ماذا وما أثره الفعلي',headers,rows,cols,
     ()=>{ rows.push({title:'',owner:NAMES[0],date:'',expected:'',status:'مقترح',actual:'',notes:''}); queueSave(); render(); },
-    (i)=>{ rows.splice(i,1); queueSave(); render(); });
+    (i)=>{ requestRowDeletion('initiatives', rows, i, `مبادرة "${rows[i].title||'(بدون عنوان)'}"`); });
 }
 
 /* ============== VACATION PLAN ============== */
@@ -1007,7 +1041,7 @@ function renderVacations(){
   const headers=['الموظف','نوع الإجازة','تاريخ البداية','تاريخ النهاية','عدد الأيام','الحالة','ملاحظات'];
   const card = tableCard('سجل خطة الإجازات — إدارة 937', `القائمة الكاملة (${ROSTER.length} موظفًا) — أضف طلب إجازة لأي اسم`, headers, rows, cols,
     ()=>{ rows.push({name:ROSTER_NAMES[0],type:'سنوية',start:'',end:'',notes:''}); queueSave(); render(); },
-    (i)=>{ rows.splice(i,1); queueSave(); render(); });
+    (i)=>{ requestRowDeletion('vacations', rows, i, `إجازة "${rows[i].name||'(بدون اسم)'}" (${rows[i].start||'—'} إلى ${rows[i].end||'—'})`); });
   card.querySelectorAll('tbody tr').forEach((tr,i)=>{
     const r = rows[i]; const t=todayStr();
     if(r.start && r.end && t>=r.start && t<=r.end) tr.style.background='var(--red-bg)';
@@ -1112,10 +1146,9 @@ function renderFacilities(){
     nameInp.addEventListener('input', e=>{ fac.name=e.target.value; queueSave(); });
     supInp.addEventListener('input', e=>{ fac.supervisor=e.target.value; queueSave(); });
     head.querySelector('.icon-btn').addEventListener('click', ()=>{
-      if(confirm(`حذف منشأة "${fac.name||'بدون اسم'}" بالكامل؟`)){
+      requestDeletion('facility', {facilityId:fac.id}, `منشأة "${fac.name||'بدون اسم'}" بالكامل (${fac.employees.length} موظف)`, ()=>{
         STATE.facilities = STATE.facilities.filter(f=>f.id!==fac.id);
-        queueSave(); render();
-      }
+      });
     });
     card.appendChild(head);
 
@@ -1134,7 +1167,9 @@ function renderFacilities(){
         inp.addEventListener('input', e=>{ emp[e.target.dataset.f]=e.target.value; queueSave(); });
       });
       tr.querySelector('.icon-btn').addEventListener('click', ()=>{
-        fac.employees.splice(i,1); queueSave(); render();
+        requestDeletion('facilityEmployee', {facilityId:fac.id, index:i, empName:emp.name}, `الموظف "${emp.name||'بدون اسم'}" من منشأة "${fac.name||''}"`, ()=>{
+          fac.employees.splice(i,1);
+        });
       });
       tbody.appendChild(tr);
     });
@@ -1241,7 +1276,9 @@ function renderEvaluation(){
         queueSave(); render();
       });
     });
-    tr.querySelector('.icon-btn').addEventListener('click', ()=>{ profile.criteria.splice(i,1); queueSave(); render(); });
+    tr.querySelector('.icon-btn').addEventListener('click', ()=>{
+      requestDeletion('evalCriteria', {person:name, index:i, text:cr.name}, `معيار "${cr.name||'(بدون اسم)'}" — ميثاق ${name}`, ()=>{ profile.criteria.splice(i,1); });
+    });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -1284,7 +1321,9 @@ function renderEvaluation(){
       const realIdx = profile.history.indexOf(h);
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${h.date}</td><td>${h.total}</td><td>${h.cls}</td><td class="txt">${h.notes||'—'}</td><td><button class="icon-btn">✕</button></td>`;
-      tr.querySelector('.icon-btn').addEventListener('click', ()=>{ profile.history.splice(realIdx,1); queueSave(); render(); });
+      tr.querySelector('.icon-btn').addEventListener('click', ()=>{
+        requestDeletion('evalHistory', {person:name, index:realIdx, date:h.date}, `سجل تقييم بتاريخ ${h.date} — ميثاق ${name}`, ()=>{ profile.history.splice(realIdx,1); });
+      });
       htbody.appendChild(tr);
     });
     htable.appendChild(htbody);
@@ -1413,7 +1452,9 @@ function renderStaffProfile(name){
           queueSave(); render();
         });
       });
-      tr.querySelector('.icon-btn').addEventListener('click', ()=>{ profile.criteria.splice(i,1); queueSave(); render(); });
+      tr.querySelector('.icon-btn').addEventListener('click', ()=>{
+        requestDeletion('staffCriteria', {person:name, index:i, text:cr.name}, `بند تقييم "${cr.name||'(بدون اسم)'}" — أداء الموظفين ${name}`, ()=>{ profile.criteria.splice(i,1); });
+      });
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -1458,7 +1499,9 @@ function renderStaffProfile(name){
       const realIdx = profile.history.indexOf(h);
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${h.date}</td><td>${h.total}</td><td>${h.cls}</td><td class="txt">${h.notes||'—'}</td><td><button class="icon-btn">✕</button></td>`;
-      tr.querySelector('.icon-btn').addEventListener('click', ()=>{ profile.history.splice(realIdx,1); queueSave(); render(); });
+      tr.querySelector('.icon-btn').addEventListener('click', ()=>{
+        requestDeletion('staffHistory', {person:name, index:realIdx, date:h.date}, `سجل تقييم شهري بتاريخ ${h.date} — أداء الموظفين ${name}`, ()=>{ profile.history.splice(realIdx,1); });
+      });
       htbody.appendChild(tr);
     });
     htable.appendChild(htbody);
@@ -1487,7 +1530,9 @@ function renderStaffProfile(name){
       <span class="badge" style="background:${badgeColor}22;color:${badgeColor};align-self:center;">${n.type}</span>
       <span style="align-self:center;font-size:12.5px;">${n.text}</span>
       <button class="icon-btn">✕</button>`;
-    row.querySelector('.icon-btn').addEventListener('click', ()=>{ profile.notes.splice(i,1); queueSave(); render(); });
+    row.querySelector('.icon-btn').addEventListener('click', ()=>{
+      requestDeletion('staffNote', {person:name, index:i, text:n.text}, `ملاحظة "${n.text||'(بدون نص)'}" — ${name}`, ()=>{ profile.notes.splice(i,1); });
+    });
     notesWrap.appendChild(row);
   });
   card.appendChild(notesWrap);
@@ -1558,7 +1603,7 @@ function renderMeetings(){
   const headers=['تاريخ الاجتماع','القرار/البند','المسؤول عن التنفيذ','تاريخ الاستحقاق','حالة التنفيذ','ملاحظات'];
   const card = tableCard('لوحة اجتماعات الإدارة — القرارات والمتابعة','الصفوف المتأخرة (استحقاق فات وحالة غير منجز) يجب متابعتها',headers,rows,cols,
     ()=>{ rows.push({date:'',decision:'',owner:NAMES[0],due:'',status:'لم يبدأ',notes:''}); queueSave(); render(); },
-    (i)=>{ rows.splice(i,1); queueSave(); render(); });
+    (i)=>{ requestRowDeletion('meetings', rows, i, `قرار اجتماع "${rows[i].decision||'(بدون نص)'}"`); });
   card.querySelectorAll('tbody tr').forEach((tr,i)=>{
     const r = rows[i];
     if(r.due && r.due < todayStr() && r.status!=='منجز') tr.style.background = 'var(--red-bg)';
@@ -1581,7 +1626,7 @@ function renderTasks(){
   const headers=['المهمة','المالك','الأولوية','تاريخ البداية','الاستحقاق','الحالة','نسبة الإنجاز %','يحتاج قرار المدير؟','ملاحظات'];
   const card = tableCard('متابعة المهام التشغيلية','المهام المعلّمة "يحتاج قرار المدير: نعم" تظهر في عدّاد لوحة القيادة',headers,rows,cols,
     ()=>{ rows.push({title:'',owner:NAMES[0],priority:'متوسطة',start:'',due:'',status:'لم تبدأ',progress:'',needDecision:'لا',notes:''}); queueSave(); render(); },
-    (i)=>{ rows.splice(i,1); queueSave(); render(); });
+    (i)=>{ requestRowDeletion('tasks', rows, i, `مهمة "${rows[i].title||'(بدون عنوان)'}"`); });
   card.querySelectorAll('tbody tr').forEach((tr,i)=>{
     const r = rows[i];
     if(r.due && r.due < todayStr() && r.status!=='منجزة') tr.style.background = 'var(--red-bg)';
@@ -1596,6 +1641,49 @@ function renderAdmin(){
   const info = document.createElement('div'); info.className='card';
   info.innerHTML = `<h3>🔒 لوحة المدير</h3><div class="hint">هذي الصفحة محمية برمز إداري منفصل عن كلمة مرور الموقع العامة. أي طلب حذف يرسله أي شخص من الموظفين يظهر هنا وينتظر موافقتك.</div>`;
   frag.appendChild(info);
+
+  // ملخص كل ما يحتاج متابعتك — مجمّع من باقي الصفحات
+  const needDecisionTasks = STATE.tasks.filter(t=>t.needDecision==='نعم');
+  const lateMeetingsList = STATE.meetings.filter(m=> m.due && m.due < todayStr() && m.status!=='منجز');
+  const lateComplaintsList = STATE.complaints.filter(c=>{
+    if(c.status==='مغلق' || !c.date) return false;
+    return daysBetween(c.date, todayStr()) > 2;
+  });
+  if(needDecisionTasks.length || lateMeetingsList.length || lateComplaintsList.length){
+    const sumCard = document.createElement('div'); sumCard.className='card';
+    sumCard.innerHTML = `<h3>كل ما يحتاج متابعتك الآن</h3>`;
+    if(needDecisionTasks.length){
+      const box = document.createElement('div'); box.style.marginBottom='12px';
+      box.innerHTML = `<b style="font-size:12.5px;">مهام تحتاج قرارك (${needDecisionTasks.length})</b>`;
+      needDecisionTasks.forEach(t=>{
+        const line = document.createElement('div'); line.className='list-item';
+        line.innerHTML = `<span class="badge b-red">مهمة</span><div>${t.title||'(بدون عنوان)'} — ${t.owner||''}${t.notes? ' — '+t.notes:''}</div>`;
+        box.appendChild(line);
+      });
+      sumCard.appendChild(box);
+    }
+    if(lateMeetingsList.length){
+      const box = document.createElement('div'); box.style.marginBottom='12px';
+      box.innerHTML = `<b style="font-size:12.5px;">قرارات اجتماعات متأخرة (${lateMeetingsList.length})</b>`;
+      lateMeetingsList.forEach(m=>{
+        const line = document.createElement('div'); line.className='list-item';
+        line.innerHTML = `<span class="badge b-amber">اجتماع</span><div>${m.decision||'(بدون نص)'} — المسؤول: ${m.owner||''} — الاستحقاق: ${m.due||''}</div>`;
+        box.appendChild(line);
+      });
+      sumCard.appendChild(box);
+    }
+    if(lateComplaintsList.length){
+      const box = document.createElement('div');
+      box.innerHTML = `<b style="font-size:12.5px;">بلاغات متأخرة (${lateComplaintsList.length})</b>`;
+      lateComplaintsList.forEach(c=>{
+        const line = document.createElement('div'); line.className='list-item';
+        line.innerHTML = `<span class="badge b-red">بلاغ</span><div>${c.code||'(بدون رقم)'} — ${c.facility||''} — المسؤول: ${c.owner||''}</div>`;
+        box.appendChild(line);
+      });
+      sumCard.appendChild(box);
+    }
+    frag.appendChild(sumCard);
+  }
 
   const pending = STATE.pendingDeletions.filter(r=>r.status==='pending');
   const card = document.createElement('div'); card.className='card';
